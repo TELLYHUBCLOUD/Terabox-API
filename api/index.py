@@ -1,20 +1,20 @@
 import os
 from flask import Flask, request, jsonify
-import json
 import aiohttp
 import asyncio
 import logging
 from urllib.parse import urlparse
 from fake_useragent import UserAgent
 import time
+import re
 
 app = Flask(__name__)
 
 # Configuration
 COOKIES_FILE = 'cookies.txt'
-REQUEST_TIMEOUT = 30
-MAX_RETRIES = 3
-RETRY_DELAY = 2
+REQUEST_TIMEOUT = 60  # Increased timeout
+MAX_RETRIES = 5       # Increased retries
+RETRY_DELAY = 3       # Increased delay
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -28,8 +28,14 @@ def get_random_headers():
         'User-Agent': ua.random,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
-        'Referer': 'https://www.terabox.com/'
+        'Referer': 'https://www.terabox.com/',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1'
     }
 
 def load_cookies():
@@ -72,12 +78,19 @@ async def make_request(session, url, method='GET', headers=None, params=None):
                 url,
                 headers=headers or get_random_headers(),
                 params=params,
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
+                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
+                allow_redirects=True
             ) as response:
                 response.raise_for_status()
                 return response
+        except aiohttp.ClientError as e:
+            last_exception = e
+            logger.warning(f"Attempt {retry_count + 1} failed: {str(e)}")
+            retry_count += 1
+            await asyncio.sleep(RETRY_DELAY * retry_count)
         except Exception as e:
             last_exception = e
+            logger.error(f"Unexpected error: {str(e)}")
             retry_count += 1
             await asyncio.sleep(RETRY_DELAY * retry_count)
     
@@ -91,51 +104,73 @@ async def fetch_file_info(url):
     # Convert cookies to the format aiohttp expects
     jar = aiohttp.CookieJar()
     for name, value in cookies.items():
-        jar.update_cookies({name: value})
+        jar.update_cookies({name: value}, domain='.1024terabox.com')
     
-    async with aiohttp.ClientSession(cookie_jar=jar) as session:
+    connector = aiohttp.TCPConnector(force_close=True, limit=0)
+    async with aiohttp.ClientSession(
+        cookie_jar=jar,
+        connector=connector,
+        trust_env=True
+    ) as session:
         # Initial request to get tokens
-        response = await make_request(session, url)
-        response_text = await response.text()
-        
-        # Extract required tokens from page
-        js_token = response_text.split('fn%28%22')[1].split('%22%29')[0] if 'fn%28%22' in response_text else None
-        log_id = response_text.split('dp-logid=')[1].split('&')[0] if 'dp-logid=' in response_text else None
-        
-        if not js_token or not log_id:
-            raise Exception("Could not extract required authentication tokens")
-        
-        # Get surl from final URL
-        surl = str(response.url).split('surl=')[1] if 'surl=' in str(response.url) else None
-        if not surl:
-            raise Exception("Could not extract share URL parameter")
-        
-        # Fetch file list
-        params = {
-            'app_id': '250528',
-            'web': '1',
-            'channel': 'dubox',
-            'clienttype': '0',
-            'jsToken': js_token,
-            'dplogid': log_id,
-            'shorturl': surl,
-            'root': '1'
-        }
-        
-        list_response = await make_request(
-            session,
-            'https://www.1024terabox.com/api/share/list',
-            params=params
-        )
-        
-        list_data = await list_response.json()
-        if list_data.get('errno') != 0:
-            raise Exception(f"API error: {list_data.get('errmsg', 'Unknown error')}")
-        
-        if not list_data.get('list'):
-            raise Exception("No files found in the shared link")
-        
-        return list_data['list']
+        try:
+            response = await make_request(session, url)
+            response_text = await response.text()
+            
+            # Extract required tokens from page
+            js_token_match = re.search(r'fn%28%22([^%]+)%22%29', response_text)
+            js_token = js_token_match.group(1) if js_token_match else None
+            
+            log_id_match = re.search(r'dp-logid=([^&]+)', str(response.url))
+            log_id = log_id_match.group(1) if log_id_match else None
+            
+            if not js_token or not log_id:
+                # Alternative token extraction method
+                js_token_match = re.search(r'jsToken":"([^"]+)"', response_text)
+                js_token = js_token_match.group(1) if js_token_match else None
+                
+                log_id_match = re.search(r'dplogid=([^&]+)', response_text)
+                log_id = log_id_match.group(1) if log_id_match else None
+                
+                if not js_token or not log_id:
+                    raise Exception("Could not extract required authentication tokens")
+            
+            # Get surl from final URL
+            surl_match = re.search(r'surl=([^&]+)', str(response.url))
+            surl = surl_match.group(1) if surl_match else None
+            if not surl:
+                raise Exception("Could not extract share URL parameter")
+            
+            # Fetch file list
+            params = {
+                'app_id': '250528',
+                'web': '1',
+                'channel': 'dubox',
+                'clienttype': '0',
+                'jsToken': js_token,
+                'dplogid': log_id,
+                'shorturl': surl,
+                'root': '1'
+            }
+            
+            api_url = 'https://www.1024terabox.com/api/share/list'
+            list_response = await make_request(
+                session,
+                api_url,
+                params=params
+            )
+            
+            list_data = await list_response.json()
+            if list_data.get('errno') != 0:
+                raise Exception(f"API error: {list_data.get('errmsg', 'Unknown error')}")
+            
+            if not list_data.get('list'):
+                raise Exception("No files found in the shared link")
+            
+            return list_data['list']
+        except Exception as e:
+            logger.error(f"Error in fetch_file_info: {str(e)}")
+            raise
 
 def format_file_info(file_data):
     return {
@@ -225,4 +260,4 @@ def health_check():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 3000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, threaded=True)
