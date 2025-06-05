@@ -6,6 +6,7 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 from fake_useragent import UserAgent
+import time
 
 app = Flask(__name__)
 
@@ -42,7 +43,12 @@ def load_cookies():
                         continue
                     parts = line.split('\t')
                     if len(parts) >= 7:
-                        cookies_dict[parts[5]] = parts[6]
+                        domain = parts[0].strip()
+                        if domain.startswith('.'):
+                            domain = domain[1:]
+                        cookie_name = parts[5].strip()
+                        cookie_value = parts[6].strip()
+                        cookies_dict[cookie_name] = cookie_value
     except Exception as e:
         logger.error(f"Error loading cookies: {str(e)}")
     return cookies_dict
@@ -52,7 +58,8 @@ def validate_terabox_url(url):
     if not url:
         return False
     parsed = urlparse(url)
-    return parsed.netloc.endswith('terabox.com') or parsed.netloc.endswith('teraboxapp.com')
+    allowed_domains = ['terabox.com', 'teraboxapp.com', '1024terabox.com']
+    return any(parsed.netloc.endswith(domain) for domain in allowed_domains)
 
 async def make_request(session, url, method='GET', headers=None, params=None):
     retry_count = 0
@@ -81,7 +88,12 @@ async def fetch_file_info(url):
     if not cookies:
         raise Exception("Valid cookies are required to access Terabox links")
     
-    async with aiohttp.ClientSession(cookies=cookies) as session:
+    # Convert cookies to the format aiohttp expects
+    jar = aiohttp.CookieJar()
+    for name, value in cookies.items():
+        jar.update_cookies({name: value})
+    
+    async with aiohttp.ClientSession(cookie_jar=jar) as session:
         # Initial request to get tokens
         response = await make_request(session, url)
         response_text = await response.text()
@@ -112,7 +124,7 @@ async def fetch_file_info(url):
         
         list_response = await make_request(
             session,
-            'https://www.terabox.com/api/share/list',
+            'https://www.1024terabox.com/api/share/list',
             params=params
         )
         
