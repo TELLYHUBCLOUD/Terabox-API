@@ -155,28 +155,62 @@ async def process_file(session, file_data):
     }
 
 @app.route('/api', methods=['GET'])
-async def api_handler():
+def api_handler():
+    start_time = time.time()
     url = request.args.get('url')
     if not url:
-        return jsonify({"status": "error", "message": "Missing ?url param"}), 400
-    try:
-        files = await fetch_download_link_async(url)
-        if not files:
-            return jsonify({"status": "error", "message": "No files found"}), 404
+        return jsonify({
+            "status": "error",
+            "message": "URL parameter is required. Developed by @Farooq_is_king. Join @OPLEECH_WD for updates.",
+            "usage": "/api?url=YOUR_TERABOX_SHARE_URL"
+        }), 400
 
-        cookies = load_cookies()
-        connector = aiohttp.TCPConnector(ssl=False)
-        async with aiohttp.ClientSession(connector=connector, cookies=cookies, headers=get_random_headers()) as session:
-            results = [await process_file(session, file) for file in files]
+    logger.info(f"Processing URL: {url}")
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        files = loop.run_until_complete(fetch_download_link_async(url))
+        if not files:
+            return jsonify({
+                "status": "error",
+                "message": "No files found in the shared link",
+                "url": url
+            }), 404
+
+        results = []
+        async def process_all_files():
+            async with aiohttp.ClientSession(cookies=load_cookies()) as session:
+                for file in files:
+                    processed = await process_file(session, file)
+                    if processed:
+                        results.append(processed)
+
+        loop.run_until_complete(process_all_files())
+
+        if not results:
+            return jsonify({
+                "status": "error",
+                "message": "Could not process any files",
+                "url": url
+            }), 500
 
         return jsonify({
             "status": "success",
+            "url": url,
             "files": results,
+            "processing_time": f"{time.time() - start_time:.2f} seconds",
             "file_count": len(results)
         })
+
     except Exception as e:
-        logger.error(str(e))
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"API error: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "url": url or "Not provided"
+        }), 500
+
 
 @app.route('/')
 def home():
