@@ -4,8 +4,9 @@ import aiohttp
 import asyncio
 import logging
 import time
-from urllib.parse import urlparse, parse_qs
-from flask import Flask, request, jsonify, Response
+import requests
+from urllib.parse import urlparse
+from flask import Flask, request, jsonify
 from fake_useragent import UserAgent
 
 app = Flask(__name__)
@@ -53,20 +54,32 @@ def find_between(text, start, end):
     except:
         return None
 
+def expand_short_url(url):
+    try:
+        resp = requests.get(url, allow_redirects=True, timeout=5)
+        return resp.url
+    except:
+        return url
+
 async def make_request(session, url, method='GET', **kwargs):
     retries, last_exception = 0, None
     while retries < MAX_RETRIES:
         try:
             async with session.request(method, url, timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT), **kwargs) as resp:
+                logger.info(f"{method} {url} -> Status {resp.status}")
                 if resp.status == 403:
-                    logger.warning(f"403 retry {retries+1}")
+                    logger.warning("Access Denied (403). Retrying...")
                     retries += 1
                     await asyncio.sleep(RETRY_DELAY)
                     continue
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.error(f"Error {resp.status}: {body}")
                 resp.raise_for_status()
                 return resp
         except Exception as e:
             last_exception = e
+            logger.error(f"Exception on attempt {retries + 1}: {str(e)}")
             retries += 1
             await asyncio.sleep(RETRY_DELAY)
     raise Exception(f"Max retries exceeded. Last error: {last_exception}")
@@ -75,7 +88,7 @@ async def fetch_download_link_async(url):
     cookies = load_cookies()
     if not cookies:
         raise Exception("No cookies found. Add your cookies.txt.")
-    
+
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector, cookies=cookies, headers=get_random_headers()) as session:
         resp = await make_request(session, url)
@@ -87,7 +100,7 @@ async def fetch_download_link_async(url):
         if not js_token or not log_id:
             raise Exception("Unable to extract jsToken or logId.")
 
-        surl = url.split('surl=')[-1] if 'surl=' in url else None
+        surl = url.split('surl=')[-1] if 'surl=' in url else url.split('/')[-1]
         if not surl:
             raise Exception("Invalid share link: surl not found")
 
@@ -157,20 +170,19 @@ async def process_file(session, file_data):
 @app.route('/api', methods=['GET'])
 def api_handler():
     start_time = time.time()
-    url = request.args.get('url')
-    if not url:
+    raw_url = request.args.get('url')
+    if not raw_url:
         return jsonify({
             "status": "error",
             "message": "URL parameter is required. Developed by @Farooq_is_king. Join @OPLEECH_WD for updates.",
             "usage": "/api?url=YOUR_TERABOX_SHARE_URL"
         }), 400
 
+    url = expand_short_url(raw_url)
     logger.info(f"Processing URL: {url}")
 
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        files = loop.run_until_complete(fetch_download_link_async(url))
+        files = asyncio.run(fetch_download_link_async(url))
         if not files:
             return jsonify({
                 "status": "error",
@@ -179,6 +191,7 @@ def api_handler():
             }), 404
 
         results = []
+
         async def process_all_files():
             async with aiohttp.ClientSession(cookies=load_cookies()) as session:
                 for file in files:
@@ -186,7 +199,7 @@ def api_handler():
                     if processed:
                         results.append(processed)
 
-        loop.run_until_complete(process_all_files())
+        asyncio.run(process_all_files())
 
         if not results:
             return jsonify({
@@ -211,13 +224,10 @@ def api_handler():
             "url": url or "Not provided"
         }), 500
 
-
 @app.route('/')
 def home():
     return jsonify({
         "status": "Running ✅",
-        "developer": "@Farooq_is_king",
-        "channel": "@Opleech_WD"
     })
 
 @app.route('/health')
