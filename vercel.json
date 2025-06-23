@@ -3,7 +3,12 @@
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "15mb",
+        "runtime": "python3.9",
+        "includeFiles": "api/**"
+      }
     }
   ],
   "routes": [
@@ -14,6 +19,10 @@
     },
     {
       "src": "/",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/health",
       "dest": "api/index.py"
     }
   ]
