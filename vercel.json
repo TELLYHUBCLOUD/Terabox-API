@@ -5,7 +5,6 @@
       "src": "api/index.py",
       "use": "@vercel/python",
       "config": {
-        "maxLambdaSize": "15mb",
         "runtime": "python3.9",
         "includeFiles": "api/**"
       }
@@ -14,15 +13,10 @@
   "routes": [
     {
       "src": "/api",
-      "dest": "api/index.py",
-      "methods": ["GET"]
-    },
-    {
-      "src": "/",
       "dest": "api/index.py"
     },
     {
-      "src": "/health",
+      "src": "/",
       "dest": "api/index.py"
     }
   ]
