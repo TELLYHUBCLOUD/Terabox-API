@@ -1,12 +1,15 @@
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify
+from werkzeug.urls import url_quote_plus as url_quote  # Updated import
 import requests
 import re
 import time
 import logging
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
+
+# Rest of your code remains the same...
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
