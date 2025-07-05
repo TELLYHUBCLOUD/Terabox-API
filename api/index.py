@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify
 import os
 import json
 import logging
@@ -10,9 +10,6 @@ from urllib.parse import urlparse, parse_qs
 
 app = Flask(__name__)
 
-# ====== 🇮🇳 ==============
-# # © Developer = WOODcraft 
-# ========================
 # Configuration
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
@@ -22,56 +19,50 @@ PORT = 3000
 # Supported domains
 SUPPORTED_DOMAINS = [
     "terabox.com",
-    "1024terabox.com",
     "teraboxapp.com",
-    "teraboxlink.com",
-    "terasharelink.com",
-    "terafileshare.com",
-    "www.1024tera.com",
-    "1024tera.com",
-    "1024tera.cn",
-    "teraboxdrive.com",
-    "dubox.com"
+    "www.terabox.com",
+    "www.teraboxapp.com"
 ]
 
 # Regex pattern for Terabox URLs
-TERABOX_URL_REGEX = r'^https:\/\/(www\.)?(terabox\.com|1024terabox\.com|teraboxapp\.com|teraboxlink\.com|terasharelink\.com|terafileshare\.com|1024tera\.com|1024tera\.cn|teraboxdrive\.com|dubox\.com)\/(s|sharing\/link)\/[A-Za-z0-9_\-]+'
+TERABOX_URL_REGEX = r'^https:\/\/(www\.)?(terabox\.com|teraboxapp\.com)\/(s|sharing)\/[A-Za-z0-9_\-]+'
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# TESTED COOKIES (Updated 2024-06-23)
+# Updated Cookies (Replace with fresh cookies)
 COOKIES = {
-    'ndut_fmt': '082E0D57C65BDC31F6FF293F5D23164958B85D6952CCB6ED5D8A3870CB302BE7',
     'ndus': 'Y-wWXKyteHuigAhC03Fr4bbee-QguZ4JC6UAdqap',
-    '__bid_n': '196ce76f980a5dfe624207',
-    '__stripe_mid': '148f0bd1-59b1-4d4d-8034-6275095fc06f99e0e6',
-    '__stripe_sid': '7b425795-b445-47da-b9db-5f12ec8c67bf085e26',
-    'browserid': 'veWFJBJ9hgVgY0eI9S7yzv66aE28f3als3qUXadSjEuICKF1WWBh4inG3KAWJsAYMkAFpH2FuNUum87q',
-    'csrfToken': 'wlv_WNcWCjBtbNQDrHSnut2h',
-    'lang': 'en',
+    'ndut_fmt': '082E0D57C65BDC31F6FF293F5D23164958B85D6952CCB6ED5D8A3870CB302BE7',
     'PANWEB': '1',
-    'ab_sr': '1.0.1_NjA1ZWE3ODRiYjJiYjZkYjQzYjU4NmZkZGVmOWYxNDg4MjU3ZDZmMTg0Nzg4MWFlNzQzZDMxZWExNmNjYzliMGFlYjIyNWUzYzZiODQ1Nzg3NWM0MzIzNWNiYTlkYTRjZTc0ZTc5ODRkNzg4NDhiMTljOGRiY2I4MzY4ZmYyNTU5ZDE5NDczZmY4NjJhMDgyNjRkZDI2MGY5M2Q5YzIyMg=='
+    'csrfToken': 'wlv_WNcWCjBtbNQDrHSnut2h',
+    'lang': 'en'
 }
-
-# FIXED HEADERS AS REQUESTED
+# COOKIES = {
+#     'ndut_fmt': '082E0D57C65BDC31F6FF293F5D23164958B85D6952CCB6ED5D8A3870CB302BE7',
+#     'ndus': 'Y-wWXKyteHuigAhC03Fr4bbee-QguZ4JC6UAdqap',
+#     '__bid_n': '196ce76f980a5dfe624207',
+#     '__stripe_mid': '148f0bd1-59b1-4d4d-8034-6275095fc06f99e0e6',
+#     '__stripe_sid': '7b425795-b445-47da-b9db-5f12ec8c67bf085e26',
+#     'browserid': 'veWFJBJ9hgVgY0eI9S7yzv66aE28f3als3qUXadSjEuICKF1WWBh4inG3KAWJsAYMkAFpH2FuNUum87q',
+#     'csrfToken': 'wlv_WNcWCjBtbNQDrHSnut2h',
+#     'lang': 'en',
+#     'PANWEB': '1',
+#     'ab_sr': '1.0.1_NjA1ZWE3ODRiYjJiYjZkYjQzYjU4NmZkZGVmOWYxNDg4MjU3ZDZmMTg0Nzg4MWFlNzQzZDMxZWExNmNjYzliMGFlYjIyNWUzYzZiODQ1Nzg3NWM0MzIzNWNiYTlkYTRjZTc0ZTc5ODRkNzg4NDhiMTljOGRiY2I4MzY4ZmYyNTU5ZDE5NDczZmY4NjJhMDgyNjRkZDI2MGY5M2Q5YzIyMg=='
+# }
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
     'Upgrade-Insecure-Requests': '1',
     'Sec-Fetch-Dest': 'document',
     'Sec-Fetch-Mode': 'navigate',
     'Sec-Fetch-Site': 'none',
     'Sec-Fetch-User': '?1',
-    'Priority': 'u=0, i',
 }
-
-def get_headers():
-    """Return fixed headers as requested"""
-    return HEADERS
 
 def validate_terabox_url(url):
     """Validate Terabox URL format"""
@@ -84,21 +75,19 @@ def make_request(url, method='GET', headers=None, params=None, allow_redirects=T
     """Make HTTP request with retry logic"""
     session = requests.Session()
     retries = 0
-    last_exception = None
     
     while retries < MAX_RETRIES:
         try:
             response = session.request(
                 method,
                 url,
-                headers=headers or get_headers(),
+                headers=headers or HEADERS,
                 params=params,
-                cookies=cookies,
+                cookies=cookies or COOKIES,
                 allow_redirects=allow_redirects,
                 timeout=REQUEST_TIMEOUT
             )
             
-            # Handle rate limiting
             if response.status_code in [403, 429, 503]:
                 logger.warning(f"Rate limited ({response.status_code}), retrying...")
                 time.sleep(RETRY_DELAY * (2 ** retries))
@@ -107,233 +96,144 @@ def make_request(url, method='GET', headers=None, params=None, allow_redirects=T
                 
             response.raise_for_status()
             return response
-        except (requests.ConnectionError, requests.Timeout) as e:
-            logger.warning(f"Connection error: {str(e)}")
-            time.sleep(RETRY_DELAY * (2 ** retries))
-            retries += 1
-            last_exception = e
-        except requests.RequestException as e:
-            logger.error(f"Request failed: {str(e)}")
+        except Exception as e:
+            logger.warning(f"Request failed (attempt {retries + 1}): {str(e)}")
             if retries == MAX_RETRIES - 1:
                 raise
-            time.sleep(RETRY_DELAY)
+            time.sleep(RETRY_DELAY * (2 ** retries))
             retries += 1
-            last_exception = e
-            
-    raise Exception(f"Max retries exceeded. Last error: {str(last_exception)}")
-
-def find_between(string, start, end):
-    """Extract substring between two delimiters"""
-    try:
-        start_index = string.find(start) + len(start)
-        end_index = string.find(end, start_index)
-        return string[start_index:end_index]
-    except Exception as e:
-        logger.error(f"find_between error: {str(e)}")
-        return None
 
 def extract_tokens(html):
-    """Extract jsToken and log_id from HTML content"""
-    # Improved token extraction with regex as requested
-    token_match = re.search(r'fn\(["\'](.*?)["\']\)', html)
-    if not token_match:
-        token_match = re.search(r'fn%28%22(.*?)%22%29', html)
-    
-    if not token_match:
-        logger.error("Token extraction failed")
-        raise Exception("Could not extract jsToken")
-    
-    js_token = token_match.group(1)
-    
-    # Improved log_id extraction
-    log_id_match = re.search(r'dp-logid=([^&\'"]+)', html)
-    if not log_id_match:
-        logger.error("Log ID extraction failed")
-        raise Exception("Could not extract log_id")
-    
-    log_id = log_id_match.group(1)
-
-    return js_token, log_id
-
-def get_surl(response_url):
-    """Extract surl parameter from URL"""
+    """Extract required tokens from HTML"""
     try:
-        # First try to extract from URL parameters
-        surl = find_between(response_url, 'surl=', '&')
-        if surl:
-            return surl
+        # Extract jsToken
+        js_token = re.search(r'window\.jsToken\s*=\s*["\']([^"\']+)["\']', html)
+        js_token = js_token.group(1) if js_token else None
         
-        # Then try to extract from path
-        parsed = urlparse(response_url)
-        if '/s/' in parsed.path:
-            surl = parsed.path.split('/s/')[1].split('/')[0]
-            return surl
+        # Extract logid
+        logid = re.search(r'logid=([^&"\']+)', html)
+        logid = logid.group(1) if logid else None
         
-        # Fallback to path parts
-        path_parts = parsed.path.strip('/').split('/')
+        if not js_token or not logid:
+            raise Exception("Could not extract required tokens")
+            
+        return js_token, logid
+    except Exception as e:
+        logger.error(f"Token extraction error: {str(e)}")
+        raise
+
+def get_surl(url):
+    """Extract surl from URL"""
+    try:
+        # Try to get from query params
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        if 'surl' in params:
+            return params['surl'][0]
+        
+        # Try to get from path
+        path_parts = parsed.path.split('/')
         if 's' in path_parts:
-            s_index = path_parts.index('s')
-            if len(path_parts) > s_index + 1:
-                return path_parts[s_index + 1]
+            idx = path_parts.index('s')
+            if len(path_parts) > idx + 1:
+                return path_parts[idx + 1]
+        if 'sharing' in path_parts:
+            idx = path_parts.index('sharing')
+            if len(path_parts) > idx + 2:
+                return path_parts[idx + 2]
         
-        # Final fallback to regex extraction
-        surl_match = re.search(r'/(s|sharing/link)/([A-Za-z0-9_\-]+)', response_url)
-        if surl_match:
-            return surl_match.group(2)
-        
-        raise Exception("Could not extract surl from URL")
+        raise Exception("Could not extract surl")
     except Exception as e:
         logger.error(f"surl extraction error: {str(e)}")
         raise
 
-def get_direct_link(url, cookies):
-    """Resolve direct download link by following redirects"""
+def process_terabox_url(url):
+    """Main processing function for Terabox URLs"""
     try:
-        response = make_request(
-            url,
-            method='HEAD',
-            allow_redirects=False,
-            cookies=cookies
-        )
-        if 300 <= response.status_code < 400:
+        # Step 1: Initial request to get tokens
+        response = make_request(url)
+        html = response.text
+        
+        # Step 2: Extract required tokens
+        js_token, logid = extract_tokens(html)
+        surl = get_surl(response.url)
+        
+        # Step 3: Prepare API request
+        api_url = "https://www.terabox.com/api/shorturlinfo"
+        params = {
+            'app_id': '250528',
+            'web': '1',
+            'channel': 'dubox',
+            'clienttype': '0',
+            'jsToken': js_token,
+            'dplogid': logid,
+            'shorturl': surl,
+            'root': '1'
+        }
+        
+        # Step 4: Make API request
+        api_response = make_request(api_url, params=params)
+        data = api_response.json()
+        
+        if 'list' not in data or not data['list']:
+            raise Exception("No files found in response")
+        
+        # Step 5: Process files
+        results = []
+        for item in data['list']:
+            if item.get('isdir') == '1':
+                continue  # Skip directories
+                
+            dlink = item.get('dlink', '')
+            if not dlink:
+                continue
+                
+            # Format size
+            size_bytes = int(item.get('size', 0))
+            size_str = format_size(size_bytes)
+            
+            results.append({
+                "filename": item.get('server_filename'),
+                "size": size_str,
+                "size_bytes": size_bytes,
+                "download_url": dlink,
+                "direct_url": get_direct_url(dlink),
+                "modified": item.get('server_mtime'),
+                "thumbnails": item.get('thumbs', {})
+            })
+        
+        return results
+    except Exception as e:
+        logger.error(f"Processing error: {str(e)}")
+        raise
+
+def get_direct_url(url):
+    """Get direct download URL by following redirects"""
+    try:
+        response = make_request(url, method='HEAD', allow_redirects=False)
+        if response.status_code in [301, 302, 303, 307, 308]:
             return response.headers.get('Location', url)
         return url
     except Exception:
         return url
 
-def process_terabox_url(url):
-    """Process Terabox URL and return file information"""
-    # Step 1: Fetch initial page
-    response = make_request(url, cookies=COOKIES)
-    html = response.text
-    
-    # Step 2: Extract tokens
-    js_token, log_id = extract_tokens(html)
-    
-    # Step 3: Get surl
-    surl = get_surl(response.url)
-    
-    # Step 4: Prepare API request
-    params = {
-        'app_id': '250528',
-        'web': '1',
-        'channel': 'dubox',
-        'clienttype': '0',
-        'jsToken': js_token,
-        'dplogid': log_id,
-        'page': '1',
-        'num': '20',
-        'order': 'time',
-        'desc': '1',
-        'site_referer': response.url,
-        'shorturl': surl,
-        'root': '1'
-    }
-    
-    # Step 5: Fetch file list
-    response2 = make_request(
-        'https://www.1024tera.com/share/list',
-        params=params,
-        cookies=COOKIES
-    )
-    response_data2 = response2.json()
-    
-    # Check if valid file list exists
-    if 'list' not in response_data2 or not response_data2['list']:
-        logger.error("No files found in API response")
-        raise Exception("No files found in shared link")
-    
-    file_list = response_data2['list']
-    logger.info(f"Found {len(file_list)} files")
-    
-    # Step 6: Handle directories (folder handling as requested)
-    if file_list and file_list[0].get('isdir') == "1":
-        folder_params = params.copy()
-        folder_params.update({
-            'dir': file_list[0]['path'],
-            'order': 'asc',
-            'by': 'name',
-        })
-        folder_params.pop('desc', None)
-        folder_params.pop('root', None)
-        
-        # Fetch folder contents
-        folder_response = make_request(
-            'https://www.1024tera.com/share/list',
-            params=folder_params,
-            cookies=COOKIES
-        )
-        folder_data = folder_response.json()
-        
-        if 'list' not in folder_data or not folder_data['list']:
-            logger.error("No files found in folder")
-            raise Exception("No files found in directory")
-        
-        # Process all files in folder (skip sub-folders)
-        folder_contents = []
-        for item in folder_data['list']:
-            if item.get('isdir') != "1":
-                folder_contents.append(item)
-        file_list = folder_contents
-        logger.info(f"Found {len(file_list)} files in folder")
-    
-    # Step 7: Process files
-    results = []
-    for file in file_list:
-        dlink = file.get('dlink', '')
-        if not dlink:
-            continue
-            
-        # Get direct download link
-        direct_link = get_direct_link(dlink, COOKIES)
-        
-        # Format size
-        size_bytes = file.get('size', 0)
-        size_str = "Unknown"
-        if size_bytes:
-            try:
-                size_bytes = int(size_bytes)
-                if size_bytes >= 1024**3:  # GB
-                    size_str = f"{size_bytes / (1024**3):.2f} GB"
-                elif size_bytes >= 1024**2:  # MB
-                    size_str = f"{size_bytes / (1024**2):.2f} MB"
-                elif size_bytes >= 1024:  # KB
-                    size_str = f"{size_bytes / 1024:.2f} KB"
-                else:
-                    size_str = f"{size_bytes} bytes"
-            except Exception:
-                pass
-        
-        results.append({
-            "file_name": file.get("server_filename", "Unknown"),
-            "size": size_str,
-            "size_bytes": size_bytes,
-            "download_url": dlink,
-            "direct_download_url": direct_link,
-            "is_directory": file.get("isdir", "0") == "1",
-            "modify_time": file.get("server_mtime", 0),
-            "thumbnails": file.get("thumbs", {})
-        })
-    
-    return results
-
-def extract_thumbnail_dimensions(url: str) -> str:
-    """Extract thumbnail dimensions from URL"""
-    parsed = urlparse(url)
-    params = parse_qs(parsed.query)
-    size_param = params.get('size', [''])[0]
-    
-    if size_param:
-        parts = size_param.replace('c', '').split('_u')
-        if len(parts) == 2:
-            return f"{parts[0]}x{parts[1]}"
-    return "original"
+def format_size(size_bytes):
+    """Convert bytes to human-readable format"""
+    if size_bytes == 0:
+        return "0B"
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    i = 0
+    while size_bytes >= 1024 and i < len(units)-1:
+        size_bytes /= 1024.0
+        i += 1
+    return f"{size_bytes:.2f}{units[i]}"
 
 @app.route('/api', methods=['GET'])
 def api_handler():
-    """API endpoint for processing Terabox URLs"""
+    """Main API endpoint"""
     start_time = time.time()
     url = request.args.get('url')
+    
     if not url:
         return jsonify({
             "status": "error",
@@ -344,53 +244,34 @@ def api_handler():
     if not validate_terabox_url(url):
         return jsonify({
             "status": "error",
-            "message": "Invalid Terabox URL format",
-            "supported_domains": SUPPORTED_DOMAINS,
-            "url": url
+            "message": "Invalid Terabox URL",
+            "supported_domains": SUPPORTED_DOMAINS
         }), 400
     
     try:
-        logger.info(f"Processing URL: {url}")
         files = process_terabox_url(url)
-        
-        if not files:
-            return jsonify({
-                "status": "error",
-                "message": "No files found or link is empty",
-                "url": url
-            }), 404
-        
         return jsonify({
             "status": "success",
             "url": url,
             "files": files,
-            "processing_time": f"{time.time() - start_time:.2f}s",
-            "file_count": len(files),
-            "cookies": "valid"
+            "count": len(files),
+            "time_taken": f"{time.time() - start_time:.2f}s"
         })
     except Exception as e:
-        logger.error(f"API error: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Service error: {str(e)}",
-            "solution": "Try again later or contact support",
-            "url": url,
-            "developer": "@Farooq_is_king"
+            "message": str(e),
+            "solution": "Try again later or check your cookies"
         }), 500
 
 @app.route('/')
 def home():
-    """Home endpoint with service information"""
     return jsonify({
-        "status": "API Running",
-        "developer": "@Farooq_is_king",
-        "usage": "/api?url=TERABOX_SHARE_URL",
-        "supported_domains": SUPPORTED_DOMAINS,
-        "cookie_status": "valid",
-        "note": "Service optimized for Terabox link processing"
+        "status": "running",
+        "service": "Terabox API",
+        "version": "2024.06",
+        "endpoint": "/api?url=TERABOX_URL"
     })
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 3000))
-    logger.info(f"Starting server on port {port}")
-    app.run(host='0.0.0.0', port=port, threaded=True)
+    app.run(host='0.0.0.0', port=PORT, threaded=True)
